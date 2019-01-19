@@ -5,10 +5,14 @@ pub struct List<T> {
     head: Link<T>,
 }
 
-/// A short way to implement Link.
+/// Type alias: a short way to implement Link.
 ///
 /// A previous example is:
-/// ```
+/// ```ignore
+/// enum Link {
+///     Empty,
+///     More(Box<Node>),
+/// }
 /// ```
 type Link<T> = Option<Box<Node<T>>>;
 
@@ -17,6 +21,14 @@ struct Node<T> {
     next: Link<T>,
 }
 
+/// ```
+/// pub trait Iterator {
+///     type Item;
+///     fn next(&mut self) -> Option<Self::Item>;
+/// }
+/// ```
+///
+///
 /// IntoIter is a type just wrapper around List.
 pub struct IntoIter<T>(List<T>);
 
@@ -43,20 +55,57 @@ impl<T> Iterator for IntoIter<T> {
 }
 
 impl<T> List<T> {
+    /// Note that there nothing pointy in this method -- we don't need to change anything to make
+    /// the *generic* work.
+    ///
+    /// Bask in the Glory that is `Self`, guardian of refactoring and copy-pasta coding. Also of
+    /// interest, we don't write `List<T>` when we construct an instance of list. That part's
+    /// inferred for us based on the fact that we're returning it from a function that expects a
+    /// `List<T>`.
     pub fn new() -> Self {
         List { head: None }
     }
 
+    /// Note: Because  `mem::replace(&mut option, None)` is such an incredibly common idiom that
+    /// Option actually just went ahead and made it a method: `take`. Thus, before we have
+    /// ```ignore
+    /// next: mem::replace(&mut self.head, None),
+    /// ```
+    /// Now, we do
+    /// ```ignore
+    /// next: self.head.take(),
+    /// ```
     pub fn push(&mut self, elem: T) {
         let new_node = Box::new(Node {
             elem: elem,
-            //next: mem::replace(&mut self.head, None),
             next: self.head.take(),
         });
 
         self.head = Some(new_node);
     }
 
+    /// Note:  `match option { None => None, Some(x) => Some(y) }` is such an incredibly common
+    /// idiom that it was called  `map`. `map` takes a function to execute on `x` in the `Some(x)`
+    /// to produce the `y` in `Some(y)`. We could write a proper fn and pass it to map, but we'd
+    /// much rather write what to do inline.
+    ///
+    /// The way to do this is with a *closure*. Closures are anonymous functions with an extra
+    /// super-power: they can refer to local variables outside the closure! This makes them super
+    /// useful for doing all sorts of conditional logic.
+    ///
+    /// Below is the previous impl.
+    /// ```ignore
+    /// pub fn pop(&mut self) -> Option<i32> {
+    ///     match mem::replace(&mut self.head, None) {
+    ///         None => None,
+    ///         Some(node) => {
+    ///             let node = *node;
+    ///             self.head = node.next;
+    ///             Some(node.elem)
+    ///         }
+    ///     }
+    /// }
+    /// ```
     pub fn pop(&mut self) -> Option<T> {
         self.head.take().map(|node| {
             let node = *node;
@@ -65,15 +114,43 @@ impl<T> List<T> {
         })
     }
 
+    /// Note that Rust won't allow the following implementation
+    /// ```ignore
+    /// pub fn peek(&self) -> Option<&T> {
+    ///     self.head.map(|node| {
+    ///         &node.elem
+    ///     })
+    /// }
+    /// ```
+    /// , becase map takes `self` by value, which would move the Option out of the thing it's in.
+    /// Previously this was fine because we had just `take`n it out, but now we actually want to
+    /// leave it where it was. The correct way to handle this is with the `as_ref` method on
+    /// Option.
+    ///
+    /// Additionally, it demotes the Option to an Option to a reference to its internals. We could
+    /// do this ourselves with an explicit match but ugh no. It does mean that we need to do an
+    /// extra derefence to cut through the extra indirection, but thankfully the . operator handles
+    /// that for us.
     pub fn peek(&self) -> Option<&T> {
         self.head.as_ref().map(|node| &node.elem)
     }
 
+    /// Mutable version of `peek()`
     pub fn peek_mut(&mut self) -> Option<&mut T> {
         self.head.as_mut().map(|node| &mut node.elem)
     }
 }
 
+/// ```
+/// impl Drop for List {
+///     fn drop(&mut self) {
+///         let mut cur_link = mem::replace(&mut self.head, None);
+///         while let Some(mut boxed_node) = cur_link {
+///             cur_link = mem::replace(&mut boxed_node.next, None);
+///         }
+///     }
+/// }
+/// ```
 impl<T> Drop for List<T> {
     fn drop(&mut self) {
         let mut cur_link = self.head.take();
