@@ -154,7 +154,7 @@ impl List {
     }
 }
 
-/// ```
+/// ```ignore
 /// impl Drop for List {
 ///     fn drop(&mut self) {
 ///         // NOTE: you can't actually explicitly call `drop` in real Rust code;

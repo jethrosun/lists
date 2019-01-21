@@ -21,30 +21,46 @@ struct Node<T> {
     next: Link<T>,
 }
 
+/// IntoIter is a type just wrapper around List.
+///
 /// ```
 /// pub trait Iterator {
 ///     type Item;
 ///     fn next(&mut self) -> Option<Self::Item>;
 /// }
 /// ```
+/// The reason Iterator yields Option<Self::Item> is because the interface coallesces the has_next
+/// and get_next concepts. When you have_next, you yield Some(value), and when you don't you yield
+/// None. This makes the API generally more ergonomic and safe to use and implement, while avoiding
+/// redundant checks and logic between has_next and get_next.
 ///
-///
-/// IntoIter is a type just wrapper around List.
+/// ```ignore
+/// IntoIter - T
+/// IterMut - &mut T
+/// Iter - &T
+/// ```
+// Tuple structs are an alternative form of struct,
+// useful for trivial wrappers around other types.
 pub struct IntoIter<T>(List<T>);
 
+///
+/// Notes on lifetime:
+/// https://cglab.ca/~abeinges/blah/too-many-lists/book/second-iter.html
+/// ```ignore
+/// rustc --explain E0106
+/// ```
 // Iter is generic over *some* lifetime, it doesn't care
 pub struct Iter<'a, T: 'a> {
     next: Option<&'a Node<T>>,
 }
 
+/// We take the Option<&mut> so we have exclusive access to the mutable reference. No need to worry
+/// about someone looking at it again.
+///
+/// Rust understands that it's ok to shard a mutable reference into the subfields of the pointed-to
+/// struct, because there's no way to "go back up", and they're definitely disjoint.
 pub struct IterMut<'a, T: 'a> {
     next: Option<&'a mut Node<T>>,
-}
-
-impl<T> List<T> {
-    pub fn into_iter(self) -> IntoIter<T> {
-        return IntoIter(self);
-    }
 }
 
 impl<T> Iterator for IntoIter<T> {
@@ -54,6 +70,7 @@ impl<T> Iterator for IntoIter<T> {
     }
 }
 
+// No lifetime here, List doesn't have any associated lifetimes
 impl<T> List<T> {
     /// Note that there nothing pointy in this method -- we don't need to change anything to make
     /// the *generic* work.
@@ -139,9 +156,36 @@ impl<T> List<T> {
     pub fn peek_mut(&mut self) -> Option<&mut T> {
         self.head.as_mut().map(|node| &mut node.elem)
     }
+
+    /// iter_mut()
+    ///
+    pub fn iter_mut(&mut self) -> IterMut<T> {
+        IterMut {
+            next: self.head.as_mut().map(|node| &mut **node),
+        }
+    }
+
+    pub fn into_iter(self) -> IntoIter<T> {
+        return IntoIter(self);
+    }
+
+    /// Note that this is syntax sugar for
+    /// ```ignore
+    /// pub fn iter<'a>(&'a self) -> Iter<'a, T> {
+    ///     Iter { next: self.head.as_ref().map(|node| &**node)
+    /// }
+    /// ```
+    // We declare a fresh lifetime here for the *exact* borrow that
+    // creates the iter. Now &self needs to be valid as long as the
+    // Iter is around.
+    pub fn iter(&self) -> Iter<T> {
+        Iter {
+            next: self.head.as_ref().map(|node| &**node),
+        }
+    }
 }
 
-/// ```
+/// ```ignore
 /// impl Drop for List {
 ///     fn drop(&mut self) {
 ///         let mut cur_link = mem::replace(&mut self.head, None);
@@ -164,26 +208,6 @@ impl<T> Drop for List<T> {
     }
 }
 
-// No lifetime here, List doesn't have any associated lifetimes
-impl<T> List<T> {
-    /// Note that this is syntax sugar for
-    /// ```ignore
-    /// impl<T> List<T> {
-    ///     pub fn iter<'a>(&'a self) -> Iter<'a, T> {
-    ///         Iter { next: self.head.as_ref().map(|node| &**node)
-    ///     }
-    /// }
-    /// ```
-    // We declare a fresh lifetime here for the *exact* borrow that
-    // creates the iter. Now &self needs to be valid as long as the
-    // Iter is around.
-    pub fn iter(&self) -> Iter<T> {
-        Iter {
-            next: self.head.as_ref().map(|node| &**node),
-        }
-    }
-}
-
 /// This is syntax sugar for:
 /// ```ignore
 /// impl<'a, T> Iterator for Iter<'a, T> {
@@ -192,7 +216,6 @@ impl<T> List<T> {
 ///     fn next<'b>(&'b mut self) -> Option<&'a T> { /* stuff */ }
 /// }
 /// ```
-
 // *Do* have a lifetime here, because Iter does have an associated lifetime
 impl<'a, T> Iterator for Iter<'a, T> {
     // Need it here too, this is a type declaration
@@ -208,17 +231,15 @@ impl<'a, T> Iterator for Iter<'a, T> {
     }
 }
 
-impl<T> List<T> {
-    pub fn iter_mut(&mut self) -> IterMut<T> {
-        IterMut {
-            next: self.head.as_mut().map(|node| &mut **node),
-        }
-    }
-}
+impl<T> List<T> {}
 
+// *Do* have a lifetime here, because Iter does have an associated lifetime
 impl<'a, T> Iterator for IterMut<'a, T> {
+    // Need it here too, this is a type declaration
     type Item = &'a mut T;
 
+    // None of this needs to change, handled by the above.
+    // Self continues to be incredibly hype and amazing
     fn next(&mut self) -> Option<Self::Item> {
         self.next.take().map(|node| {
             self.next = node.next.as_mut().map(|node| &mut **node);
