@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["IntoIter",""],["Iter",""],["List","A doubly linked list."],["Node",""]],"type":[["Link","Now Rust is an incredibly verbose pervasively mutable garbage collected language that can't collect cycles."]]});
